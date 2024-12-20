@@ -1,0 +1,64 @@
+pipeline {
+    agent any
+
+    options {
+        ansiColor('gnome-terminal')
+    }
+
+    environment {
+        PATH = "/home/jenkins/bin:$PATH"
+    }
+
+    stages {
+        stage('Clone from GitHub') {
+            steps {
+                git(
+                    url: 'git@github.com:ROARforGood/tf-secrets.git',
+                    credentialsId: 'github-ssh'
+                )
+            }
+        }
+        stage('Terraform plan') {
+            steps {
+                ansiColor('gnome-terminal') {
+                    withAWS(credentials: 'tf-deployer') {
+                        withCredentials([string(credentialsId: 'mapbox', variable: 'mapbox'), file(credentialsId: 'rootca', variable: 'rootca'), file(credentialsId: 'apns_certificate', variable: 'apns_certificate'), file(credentialsId: 'apns_key', variable: 'apns_key'), string(credentialsId: 'fcm_token', variable: 'fcm_token'), file(credentialsId: 'private_key', variable: 'private_key')]) {
+                                dir("${env.WORKSPACE}/${env.JOB_NAME}") {
+                                    sh """
+                                      terraform init
+                                      terraform plan -out=tfplan \
+                                        -var 'mapbox=$mapbox' \
+                                        -var 'rootca=$rootca' \
+                                        -var 'apns_certificate=$apns_certificate' \
+                                        -var 'apns_key=$apns_key' \
+                                        -var 'fcm_token=$fcm_token' \
+                                        -var 'private_key=$private_key'
+                                       """
+                                }
+                        }
+                    }
+                }
+            }
+        }
+        stage('Confirmation'){
+            steps{
+                timeout(time: 15, unit: "MINUTES") {
+                   input message: 'Do you want to approve the plan and move to terraform apply step?', ok: 'Yes'
+                }
+            }
+        }
+        stage('Run terraform apply'){
+            steps {
+                ansiColor('gnome-terminal') {
+                    withAWS(credentials: 'tf-deployer') {
+                        withCredentials([string(credentialsId: 'mapbox', variable: 'mapbox'), file(credentialsId: 'rootca', variable: 'rootca'), file(credentialsId: 'apns_certificate', variable: 'apns_certificate'), file(credentialsId: 'apns_key', variable: 'apns_key'), string(credentialsId: 'fcm_token', variable: 'fcm_token'), file(credentialsId: 'private_key', variable: 'private_key')]) {
+                            dir("${env.WORKSPACE}/${env.JOB_NAME}") {
+                                sh ("terraform apply tfplan -auto-approve")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
